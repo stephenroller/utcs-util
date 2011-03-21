@@ -11,17 +11,20 @@ from subprocess import Popen, PIPE
 # global temp file array so we can clean up after ourselves
 temp_files = []
 
+def make_tempfile(data):
+    tmpfn = tempfile.mktemp()
+    tmp = open(tmpfn, 'w')
+    tmp.write(data)
+    tmp.close()
+    temp_files.append(tmpfn)
+    return tmpfn
+
 def get_file(filename):
     url_fronts = ["http", "ftp", "https"]
     for url_front in url_fronts:
         if filename.startswith(url_front):
             data = urllib2.urlopen(filename).read()
-            tmpfn = tempfile.mktemp()
-            temp_files.append(tmpfn)
-            tmp = open(tmpfn, 'w')
-            tmp.write(data)
-            tmp.close()
-            return open(tmpfn)
+            return open(make_tempfile(data))
     
     if filename == "-":
         return sys.stdin
@@ -38,12 +41,7 @@ def make_twoup(filedata):
     return Popen(["psbind", "-q", "--tumble", "-2"], stdin=filedata, stdout=PIPE, stderr=PIPE)
 
 def make_copies(data, copies):
-    tmpfn = tempfile.mktemp(suffix=".ps")
-    temp_files.append(tmpfn)
-    tmp = open(tmpfn, 'w')
-    tmp.write(data)
-    tmp.close()
-    print ["psmerge"] + copies * [tmpfn]
+    tmpfn = make_tempfile(data)
     return Popen(["psmerge"] + copies * [tmpfn], stdout=PIPE)
 
 def lpr(header, printer, filedata):
@@ -66,7 +64,10 @@ def help():
         "    -P <printer>  Use <printer> rather than the default.\n"
         "    -2            Two-up the document.\n"
         "    -F            Fake print. Output a postscript file to stdout\n"
-        "                  instead of lpr."
+        "                  instead of lpr.\n"
+        "    --pdf         Fake output is a PDF file instead of a postscript\n"
+        "                  file. Only works in conjunction with -F.\n"
+        "\n"
     )
     sys.stderr.write(helpmsg % sys.argv[0])
 
@@ -78,10 +79,11 @@ def main():
     twoup = False
     copies = 1
     fakeprint = False
+    fakepdf = False
 
     # parse command line tools
     try:
-        opts, args = getopt.getopt(sys.argv[1:], "hH#:2P:F")
+        opts, args = getopt.getopt(sys.argv[1:], "hH#:2P:F", ["pdf"])
     except:
         help()
         sys.exit(2)
@@ -98,6 +100,8 @@ def main():
             printer = a
         elif o == "-F":
             fakeprint = True
+        elif o == '--pdf':
+            fakepdf = True
         elif o == "-#":
             try:
                 copies = int(a)
@@ -124,27 +128,30 @@ def main():
     filedata = get_file(filename)
 
     # generate the necessary chain of commands to perform our result
-    procs = []
     proc = make_ps(filename, filedata)
-    procs.append(proc)
 
     if twoup:
         proc = make_twoup(proc.stdout)
-        procs.append(proc)
 
     if copies > 1:
         stdoutdata, stderrdata = proc.communicate()
         proc = make_copies(stdoutdata, copies)
-        procs.append(proc)
         
     if not fakeprint:
         proc = lpr(header, printer, proc.stdout)
-        procs.append(proc)
 
     # we need to wait for all the commands to finish
     stdoutdata, stderrdata = proc.communicate()
 
     if fakeprint:
+        # fake print! we're going to just output the file.
+        # presumably we just wanted to 2-up it or something.
+        if fakepdf:
+            # force it back into a pdf (why!?!?)
+            tmpfn = make_tempfile(stdoutdata)
+            proc = Popen(['ps2pdf', tmpfn, '-'], stdout=PIPE)
+            stdoutdata, stderrdata = proc.communicate()
+
         sys.stdout.write(stdoutdata)
 
     # delete temp files
