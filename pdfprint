@@ -1,0 +1,156 @@
+#!/usr/bin/env python
+
+import sys
+import os
+import getopt
+import urllib2
+import tempfile 
+
+from subprocess import Popen, PIPE
+
+# global temp file array so we can clean up after ourselves
+temp_files = []
+
+def get_file(filename):
+    url_fronts = ["http", "ftp", "https"]
+    for url_front in url_fronts:
+        if filename.startswith(url_front):
+            data = urllib2.urlopen(filename).read()
+            tmpfn = tempfile.mktemp()
+            temp_files.append(tmpfn)
+            tmp = open(tmpfn, 'w')
+            tmp.write(data)
+            tmp.close()
+            return open(tmpfn)
+    
+    if filename == "-":
+        return sys.stdin
+    else:
+        return open(filename)
+
+def make_ps(filename, filedata):
+    if filename.endswith(".pdf"):
+        return Popen(["pdf2ps", "-", "-"], stdin=filedata, stdout=PIPE)
+    else:
+        return Popen(["cat", "-"], stdin=filedata, stdout=PIPE)
+
+def make_twoup(filedata):
+    return Popen(["psbind", "-q", "--tumble", "-2"], stdin=filedata, stdout=PIPE, stderr=PIPE)
+
+def make_copies(data, copies):
+    tmpfn = tempfile.mktemp(suffix=".ps")
+    temp_files.append(tmpfn)
+    tmp = open(tmpfn, 'w')
+    tmp.write(data)
+    tmp.close()
+    print ["psmerge"] + copies * [tmpfn]
+    return Popen(["psmerge"] + copies * [tmpfn], stdout=PIPE)
+
+def lpr(header, printer, filedata):
+    cmd = ["lpr"]
+    if not header:
+        cmd.append("-h")
+    cmd.append("-P")
+    cmd.append(printer)
+    cmd.append("-")
+
+    return Popen(cmd, stdin=filedata, stdout=PIPE)
+
+def help():
+    helpmsg = (
+        "Usage: %s [-h] [-H] [-# copies] [-2] [-P printer] file_or_url\n"
+        "Options:\n"
+        "    -h            Print this help message.\n"
+        "    -H            Include the header page in the job.\n"
+        "    -# <number>   Print <number> copies.\n"
+        "    -P <printer>  Use <printer> rather than the default.\n"
+        "    -2            Two-up the document.\n"
+        "    -F            Fake print. Output a postscript file to stdout\n"
+        "                  instead of lpr."
+    )
+    sys.stderr.write(helpmsg % sys.argv[0])
+
+
+def main():
+    # default command line options
+    header = False
+    printer = os.environ['PRINTER']
+    twoup = False
+    copies = 1
+    fakeprint = False
+
+    # parse command line tools
+    try:
+        opts, args = getopt.getopt(sys.argv[1:], "hH#:2P:F")
+    except:
+        help()
+        sys.exit(2)
+
+    for o,a in opts:
+        if o == "-h":
+            help()
+            sys.exit(1)
+        elif o == "-H":
+            header = True
+        elif o == "-2":
+            twoup = True
+        elif o == "-P":
+            printer = a
+        elif o == "-F":
+            fakeprint = True
+        elif o == "-#":
+            try:
+                copies = int(a)
+                if copies <= 0:
+                    sys.stderr.write("Error: really? %d copies?\n\n" % copies)
+                    help()
+                    sys.exit(3)
+            except:
+                sys.stderr.write("Error: -# requires an integer as an argument.\n\n")
+                help()
+                sys.exit(3)
+        else:
+            sys.stderr.write("Error: %s is not a valid option.\n\n" % o)
+            help()
+            sys.exit(1)
+
+    if len(args) != 1:
+        sys.stderr.write("Error: must specify exactly one file name or url.\n\n")
+        help()
+        sys.exit(1)
+
+    # pull the file off the filesystem or the web, as needed
+    filename = args[0]
+    filedata = get_file(filename)
+
+    # generate the necessary chain of commands to perform our result
+    procs = []
+    proc = make_ps(filename, filedata)
+    procs.append(proc)
+
+    if twoup:
+        proc = make_twoup(proc.stdout)
+        procs.append(proc)
+
+    if copies > 1:
+        stdoutdata, stderrdata = proc.communicate()
+        proc = make_copies(stdoutdata, copies)
+        procs.append(proc)
+        
+    if not fakeprint:
+        proc = lpr(header, printer, proc.stdout)
+        procs.append(proc)
+
+    # we need to wait for all the commands to finish
+    stdoutdata, stderrdata = proc.communicate()
+
+    if fakeprint:
+        sys.stdout.write(stdoutdata)
+
+    # delete temp files
+    for tmpfn in temp_files:
+        os.unlink(tmpfn)
+
+if __name__ == '__main__':
+    main()
+
