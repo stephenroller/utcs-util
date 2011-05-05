@@ -1,0 +1,842 @@
+#!/usr/bin/perl
+
+=pod
+
+=head1 NAME
+
+psbind - Transform PostScript files to save trees and reduce guilt
+
+=head1 SYNOPSIS
+
+B<psbind> [I<option>]... [I<input-file-name> [I<output-file-name>]]
+
+=head1 DESCRIPTION
+
+C<psbind> examines the margins in a PostScript document and
+rearranges the pages to fit them onto paper efficiently.  It outputs a
+transformed PostScript document.
+
+Because C<psbind> detects the margins in its input
+automatically, it is particularly useful on documents with large or
+unbalanced margins.  For example, many PostScript documents are laid
+out for paper sizes smaller than A4 or Letter.  C<psbind>
+can place two such pages onto one output page, often without shrinking
+the text.  It is also useful for printing documents formatted for A4
+paper on Letter stock, or vice versa.
+
+The simplest way to invoke C<psbind> is without any
+arguments, as in:
+
+=over 4
+
+psbind
+
+=back 4
+
+By default, C<psbind> reads a PostScript document from
+standard input and reformats it 2-up (i.e., placing two input pages on
+each output page).  It leaves approximately 1/4 inch (6 mm) margins,
+and writes the result to standard output.
+
+By adding command line options, you can:
+
+=over 4
+
+=item *
+
+Place a different number of input pages onto each output page (e.g., C<psbind -4>).
+
+=item *
+
+Recenter the text on each page without combining pages (C<psbind -C>).
+
+=item *
+
+Simply trim off the margins, for further processing by another program (C<psbind -T>).
+
+=item *
+
+Send the output to a printer (C<psbind -PI<printer-name>>) or a file.
+
+=item *
+
+Fine-tune output formatting (e.g., C<psbind --margin=2cm>), margin detection (e.g., C<psbind --sample=2-10>), and other options.
+
+=back 4
+
+The rest of this document describes how.
+
+=head1 OPTIONS
+
+In addition to specifying the options described below to
+C<psbind> on the command line, you can put them in an
+environment variable named C<PSBIND>.  As one might expect,
+options specified in this environment variable can be overridden on
+the command line.
+
+=head2 Input and output locations
+
+You can invoke C<psbind> with zero, one, or two file names
+on the command line.
+
+=over 4
+
+=item *
+
+If you invoke C<psbind> with no file name on the command line, it acts as a filter.  In other words, it reads a PostScript document from standard input and writes a transformed document to standard output.
+
+=over 4
+
+psbind
+
+=back 4
+
+=item *
+
+If you invoke C<psbind> with one file name on the command line, it reads from the specified file and writes to standard output.
+
+=over 4
+
+psbind I<input-file-name>
+
+=back 4
+
+=item *
+
+If you invoke C<psbind> with two file names on the command line, it reads from the first file and writes to the second file.  If the second file already exists, it will be overwritten.
+
+=over 4
+
+psbind I<input-file-name output-file-name>
+
+=back 4
+
+=back 4
+
+You can also send the output directly to a printer.
+
+=over 4
+
+=item B<-P/--printer=>I<printer-name> 
+
+Send output to printer.
+
+Send the transformed PostScript document to the specified printer by invoking C<lpr>. This option cannot be specified in conjunction with an output file name.
+
+=back 4
+
+=head2 Output formatting options
+
+You can tell C<psbind> to do one of three things:
+combine pages, recenter pages, or trim pages.  The default is
+to combine pages (2-up).
+
+=over 4
+
+=item B<-N/--nup> 
+
+Combine pages.
+
+Place multiple input pages (2 by default) on each output page. Resize the material and optimize the layout to minimize wasted space. To change the number of input pages combined into each output page, use the C<-n/--nup-n> option.
+
+=item B<-C/--center> 
+
+Recenter pages.
+
+Shift each page by an offset so that margins are balanced between top and bottom and between left and right. Do not resize or combine pages.
+
+=item B<-T/--trim> 
+
+Trim pages.
+
+Shift each page by an offset, and change the paper size information in the document, so that there is no margin whatsoever in the output document. This option is useful only if the output of C<psbind> is fed into another program for post-processing.
+
+=back 4
+
+The following option is relevant only when combining pages (C<-N/--nup>) or recentering pages (C<-C/--center>):
+
+=over 4
+
+=item B<-p/--paper=>I<a4/letter/other-paper-size> 
+
+Set output paper size.
+
+By default, C<psbind> produces output for the default paper size returned by C<paperconf> (if C<libpaperg> is installed), or Letter paper (otherwise). You can use this option to switch to a different paper size: any size known to C<libpaperg> (if it is installed), or A4 or Letter (otherwise).
+
+=back 4
+
+The following options are relevant only when combining pages (C<-N/--nup>).
+
+=over 4
+
+=item B<-n/--nup-n=>I<n> 
+
+Set number of input pages per output page.
+
+By default, C<psbind> puts 2 input pages on each output page; this option adjusts the number. To zoom each input page to fit one output page, say C<-n1>.
+
+=item B<-1>, B<-2>, ... 
+
+Abbreviation for C<-n1>, C<-n2>, ....
+
+=item B<--margin/--nup-margin=>I<dimension> 
+
+Set output margin.
+
+This option specifies how much margin to leave around each output page. The default is 1/8 inch (3 mm). You can override this setting in centimeters (C<0.3cm>), millimeters (C<3mm>), inches (C<0.125in>), or PostScript points (C<9pt>). If you do not specify a unit, PostScript points are assumed.
+
+=item B<--border/--nup-border=>I<dimension> 
+
+Set output border.
+
+This option specifies how much space to leave around each I<input> page in the combined output. The default is 1/8 inch (3 mm).
+
+=item B<--magic> 
+
+Try very hard to keep the size of the original image.
+
+Documents generally look worse when rescaled. This is especially true of documents that contain bitmaps, be them bitmap fonts or bitmap images. The C<--magic> option suppresses the default rescaling behavior of C<psbind> whenever possible. By "whenever possible" we mean whenever the unscaled originals will fit in the output, without taking C<--margin> or C<--border> into account. This option is particularly useful for documents that C<psbind> would normally decide to I<expand> after trimming off margins.
+
+=back 4
+
+The following options are effective at all times, but probably useful only when combining pages (C<-N/--nup>).
+
+=over 4
+
+=item B<--scoot> 
+
+Prepend blank page to input.
+
+Many documents show page numbers to the right on odd-numbered pages and to the left on even-numbered pages. When printing such documents 2-up, the page numbers on adjacent input pages end up next to each other and look funny. To solve this problem, this option prepends a blank page to the input, so that odd-numbered pages appear to the right, and even-numbered pages to the left.
+
+=item B<--tumble> 
+
+Rotate every other output page.
+
+Some people like to flip through their duplex documents along the short edge of the paper rather than the long edge. This option rotates every other page in the output document by 180 degrees to achieve the effect.
+
+=back 4
+
+=head2 Margin detection options
+
+C<psbind> detects margins in the input document as follows:
+
+=over 4
+
+=item 1.
+
+Run Ghostscript to compute the extent of each input page. By default, only sample the first 10 pages.
+
+=item 2.
+
+Compute the left and right margins to be the maximum amounts that would not run into any sampled extent. By default, compute separate left and right margins for odd-numbered and even-numbered pages.
+
+=item 3.
+
+Compute the top and bottom margins to be the maximum amounts that would not run into any sampled extent. By default, compute a single set of top and bottom margins for all pages.
+
+=item 4.
+
+Check if the computed margins seem strange. ("Strange" is defined as: The computed extent of odd-numbered pages, even-numbered pages, or both exceed 1200 PostScript points or fall under 100 PostScript points in either or both dimension.) If they seem strange, run Ghostscript to rewrite the input document, then try detecting the margins again.
+
+=back 4
+
+The following options allow you to fine-tune this margin detection process.
+
+=over 4
+
+=item B<-s/--sample=>I<pages> 
+
+Choose input pages to sample.
+
+By default, the first 10 pages are sampled from the input document to detect its margins. This options allows you to specify a different set of pages to sample. The list of C<pages> should be a comma-separated list of page ranges, each of which may be a page number, or a page range of the form C<I<first>-I<last>>. If C<first> is omitted, the first page is assumed, and if C<last> is omitted, the last page is assumed. Negative numbers in C<last> indicate pages relative to the end of the document, counting backwards. For example, to skip page 5 (perhaps because it sticks out a little bit), say C<--sample=1-4,6-10>.
+
+=item B<--xmodulus=>I<n> 
+
+Specify page modulus for detecting horizontal extent.
+
+By default, left and right margins are determined separately for odd-numbered pages and even-numbered pages. This behavior corresponds to a default setting of C<--xmodulus=2>. To determine a single horizontal extent for all pages taken together, say C<--xmodulus=1>. You can also change this setting to integers greater than 2, but it probably does not make any sense.
+
+=item B<--ymodulus=>I<n> 
+
+Specify page modulus for detecting vertical extent.
+
+By default, a single set of top and bottom margins is determined for all pages taken together. This behavior corresponds to a default setting of C<--ymodulus=1>. To determine vertical extents separately for odd-numbered pages and even-numbered pages, say C<--ymodulus=2>. You can also change this setting to integers greater than 2, but it probably does not make any sense.
+
+=item B<--fix=>I<auto/no/yes/force> 
+
+Invoke or suppress C<fixps>.
+
+By default, C<psbind> first tries to determine margins using the original input document; if this first attempt fails, it then invokes C<fixps --force> to rewrite the document for a second try. To disable C<fixps> invocation altogether, say C<--fix=no>. To invoke C<fixps --force> right away, say C<--fix=force>. To invoke C<fixps> right away (without C<--force>), say C<--fix=yes>.
+
+=back 4
+
+=head2 Miscellaneous options
+
+=over 4
+
+=item B<-q/--quiet> 
+
+Suppress status messages.
+
+Usually, C<psbind> prints external commands as it executes them.  It also produces messages summarizing the margin detection process.  This option suppresses these messages.
+
+=item B<--ghostscript=>I<program-name>
+
+=item B<--psnup=>I<program-name>
+
+=item B<--pstops=>I<program-name>
+
+=item B<--psselect=>I<program-name>
+
+=item B<--fixps=>I<program-name>
+
+=item B<--lpr=>I<program-name>
+
+=item B<--paperconf=>I<program-name> 
+
+Specify locations of external programs.
+
+To do its job, C<psbind> invokes the external programs listed above.  By default, C<psbind> searches for these programs under their standard names on the executable path.  These options override how C<psbind> invokes external programs.  For example, to invoke C<lp> instead of C<lpr>, say C<psbind --lpr=lp>.
+
+=item B<--help> 
+
+Display usage information.
+
+This option makes C<psbind> display usage information and do nothing else.
+
+=item B<--manual> 
+
+Display complete documentation.
+
+This option makes C<psbind> display complete documentation and do nothing else.
+
+=back 4
+
+=head1 PREREQUISITES
+
+C<psbind> is a Perl program; to run it, your system needs to
+have Perl 5 installed (see L<perl(1)>).
+C<psbind> also requires Ghostscript with C<bbox> device support (see L<gs(1)>),
+as well as C<psutils> (see L<psnup(1)>, L<pstops(1)>, L<psselect(1)>, and L<fixps(1)>).
+
+=head1 COREQUISITES
+
+For sending its output to a printer, C<psbind> relies on C<lpr> (see L<lpr(1)>).
+For paper size information, C<psbind> relies on C<libpaperg> if it is
+available (see L<paperconf(1)>).
+
+=head1 VERSION
+
+This version of C<psbind> is dated 2003-06-17.
+
+=head1 AUTHOR AND COPYRIGHT
+
+Copyright (c) 2001-2003, Chung-chieh Shan.
+
+This program is free software; you can redistribute it and/or
+modify it under the terms of the GNU General Public License
+as published by the Free Software Foundation; either version 2
+of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, write to the Free Software
+Foundation, Inc., 59 Temple Place Suite 330, Boston, MA 02111-1307, USA.
+
+You may contact Chung-chieh Shan at:
+
+    240 Franklin St Apt 4
+    Cambridge, MA 02139-3986, USA
+    ccshan@post.harvard.edu
+
+Latest contact information may be found on the World Wide Web
+at http://www.digitas.harvard.edu/~ken/
+
+=head1 THANKS
+
+Thanks to Dylan Thurston, Danny Calegari, Nathan Dunfield, Norman Ramsey, and
+Kaihsu Tai for helpful suggestions and encouragement.
+
+=head1 README
+
+C<psbind> examines the margins in a PostScript document and rearranges the pages
+to fit them onto paper efficiently.
+
+=head1 SCRIPT CATEGORIES
+
+CPAN/Administrative
+
+=cut
+
+use strict;
+use Getopt::Long;
+use Pod::Usage;
+
+my $VERSION = 2003_06_17;
+
+## Parse command line options
+
+if (length $ENV{PSBIND})
+{
+    require Text::ParseWords;
+    unshift @ARGV, Text::ParseWords::shellwords($ENV{PSBIND});
+}
+
+local $SIG{__WARN__} = sub
+{
+    print STDERR $_[0]
+        unless $_[0] =~ /^Ignoring '!' modifier for short option/s;
+};
+
+Getopt::Long::Configure(qw(no_auto_abbrev
+    no_getopt_compat no_require_order permute bundling));
+
+my $MESSAGE =
+    "\npsbind - Transform PostScript files to save trees and reduce guilt\n";
+my %options =
+(
+    help	=> 0,		# Display help message
+    manual	=> 0,		# Display manual page
+    printer     => undef,       # Output printer name
+    nup         => undef,       # Action choice 1: invoke psnup (default)
+    center      => undef,       # Action choice 3: center on page
+    trim        => undef,       # Action choice 2: trim to bounding box
+    paper       => '',          # Output paper size (letter or a4)
+    n           => undef,       # Number of pages per sheet, for --nup
+    ndigits	=> '',		# Number of pages per sheet, from -0 .. -9
+    margin      => 9,           # Margin around each sheet, for --nup
+    border      => 9,           # Border around each page, for --nup
+    magic       => undef,       # Try to keep original image size, for --nup
+    scoot       => undef,       # Whether to prepend a blank virtual page
+    tumble      => undef,       # Whether to rotate every other (n-up'd) page
+    sample      => '-10',       # Input pages to sample
+    xmodulus    => 2,           # Modulus with which to detect input width
+    ymodulus    => 1,           # Modulus with which to detect input height
+    fix         => 'auto',      # Fixps invocation control (auto/no/yes/force)
+    quiet       => 0,           # Whether to hide status messages
+    ghostscript => 'gs',        # Command for invoking Ghostscript
+    psnup       => 'psnup',     # Command for invoking psnup
+    pstops      => 'pstops',    # Command for invoking pstops
+    psselect    => 'psselect',  # Command for invoking psselect
+    fixps       => 'fixps',     # Command for invoking fixps
+    lpr         => 'lpr',       # Command for invoking lpr
+    paperconf   => 'paperconf', # Command for invoking paperconf
+);
+GetOptions
+(
+    \%options,
+    'help|h!',
+    'manual!',
+    'printer|P=s',
+    'nup|N!',
+    'center|C!',
+    'trim|T!',
+    'paper|p=s',
+    'n|nup-n=i',
+    'margin|nup-margin|m=s',
+    'border|nup-border|b=s',
+    'magic!',
+    'scoot!',
+    'tumble!',
+    'sample|s=s',
+    'xmodulus|x-modulus|xmod|x-mod|xm|x=i',
+    'ymodulus|y-modulus|ymod|y-mod|ym|y=i',
+    'fix=s',
+    'quiet|q!',
+    'ghostscript=s',
+    'psnup=s',
+    'pstops=s',
+    'psselect=s',
+    'fixps=s',
+    'lpr=s',
+    'paperconf=s',
+    map(("$_", sub { $options{ndigits} .= $_[0] }), 0..9)
+)
+or pod2usage(-message => $MESSAGE, -exitstatus => 3);
+pod2usage(-message => $MESSAGE, -exitstatus => 0, -verbose => 2) if $options{manual};
+pod2usage(-message => $MESSAGE, -exitstatus => 0, -verbose => 1) if $options{help};
+
+if (length $options{ndigits})
+{
+    die "Usage error: The -n option cannot be specified if -<digit> is.\n"
+	if defined $options{n};
+    $options{n} = $options{ndigits};
+}
+$options{n} = 2 unless defined $options{n};
+die "Usage error: The -n option must be set to a positive integer.\n"
+    unless $options{n} > 0;
+
+$options{nup} = 1
+    if not defined $options{nup}
+    and not $options{trim}
+    and not $options{center};
+
+die "Usage error: Only one of --nup, --trim and --center may be specified.\n"
+    if $options{nup} + $options{trim} + $options{center} != 1;
+
+my %fix = qw(auto       auto
+             a          auto
+             automatic  auto
+             default    auto
+             no         no
+             n          no
+             false      no
+             off        no
+             yes        yes
+             y          yes
+             true       yes
+             on         yes
+             force      force
+             f          force
+             full       force
+             rewrite    force);
+die "Usage error: The value of --fix must be one of: auto, no, yes, force.\n"
+    if not defined ($options{fix} = $fix{lc($options{fix})});
+
+my $sample = parse_sample($options{sample})
+    or die qq|Usage error: "$options{sample}" is not a valid list of pages.\n|;
+
+my ($paper_cx, $paper_cy) = parse_paper($options{paper})
+    or die qq|Usage error: Unknown paper size "$options{paper}".\n|;
+
+die "Usage error: Number of input pages per output page must be positive.\n"
+    if $options{n} <= 0;
+
+die "Usage error: --magic only works with 1 or 2 input pages per output page.\n"
+    if $options{magic} and $options{n} > 2;
+
+unshift @ARGV, "-"   if @ARGV == 0;
+push    @ARGV, undef if defined $options{printer};
+push    @ARGV, "-"   if @ARGV < 2;
+
+@ARGV == 2 or die "Usage error: Too many file names specified.\n";
+
+sub parse_sample ($)
+{
+    my $sample = $_[0];
+
+    $sample =~ s/^,+//s;
+    my @sample = split /,+/, $sample;
+    @sample or return undef;
+
+    my @ret;
+    foreach my $sample (@sample)
+    {
+        my ($beg, $end) = ($sample =~ /^\s*([+]?\d*)\s*(?:-\s*([-+]?\d*)\s*)?$/s)
+            or return undef;
+        $beg ||= 1;
+	defined $end and $end ||= -1 or $end = $beg;
+	print STDERR "$beg -- $end\n";
+        push @ret, [$beg, $end];
+    }
+    return \@ret;
+}
+
+sub parse_paper ($)
+{
+    my $paper = $_[0];
+
+    my $cmd = "$options{paperconf} -s";
+    $cmd .= length($paper) ? " -p \Q$paper\E" : "";
+    if ($options{quiet}) { $cmd .= " 2>/dev/null" }
+    else { print STDERR "$cmd\n" }
+    return ($1, $2) if `$cmd` =~ /^\s*(\d+)\s+(\d+)\s*$/si;
+
+    return (612, 792) if $paper =~ /^(?:us|letter)?$/si;
+    return (596, 842) if $paper =~ /^a4$/si;
+    return ();
+}
+
+## Choose and keep track of temporary file names
+
+BEGIN { $SIG{INT} = $SIG{QUIT} = sub { exit 1 } }
+my @temporary;
+sub temporary ()
+{
+    require File::Temp;
+    require Fcntl;
+    my ($fh, $fn) = File::Temp::tempfile(UNLINK => 1);
+    push @temporary, $fh;
+    print STDERR qq|Creating temporary file "$fn".\n| unless $options{quiet};
+    fcntl $fh, &Fcntl::F_SETFD, 0
+	or die qq|Cannot turn off close-on-exec for temporary file: $!\n|;
+    return ($fh, "/dev/fd/" . fileno($fh));
+}
+
+## Put standard input in a temporary file, if necessary
+
+if ($ARGV[0] eq "-")
+{
+    require File::Copy;
+    my ($fh, $fn) = temporary;
+    File::Copy::copy(\*STDIN, $fh)
+        or die qq|Could not copy standard input to temporary file: $!.\n|;
+    $ARGV[0] = $fn;
+}
+
+## Use Ghostscript to find bounding boxes of pages
+
+my ($xmin, $xmax, $cx, $ymin, $ymax, $cy);
+
+my @bbox_trial = ();
+$options{fix} =~ /^auto|no$/s
+    and push @bbox_trial, [$ARGV[0], 'file'];
+$options{fix} =~ /^yes$/s
+    and push @bbox_trial, ["$options{fixps} \Q$ARGV[0]\E", 'pipe'];
+$options{fix} =~ /^auto|force$/s
+    and push @bbox_trial, ["$options{fixps} --force \Q$ARGV[0]\E", 'pipe'];
+while (@bbox_trial)
+{
+    my ($input, $input_type) = @{shift @bbox_trial};
+    if ($input_type eq 'pipe')
+    {
+        my ($fh, $fn) = temporary;
+        $input = "$input | tee \Q$fn\E";
+        $ARGV[0] = $fn;
+    }
+
+    if (($xmin, $xmax, $cx, $ymin, $ymax, $cy) = find_bbox($input, $input_type))
+    {
+        last if $options{fix} ne 'auto';
+        last if $cx > 100 and $cx < 1200 and $cy > 100 and $cy < 1200;
+    }
+}
+die "Could not determine page layout from sampled pages.\n"
+    if grep { not defined } $xmin, $xmax, $cx, $ymin, $ymax, $cy;
+print STDERR "x: (@$xmin)--(@$xmax) = $cx\n" unless $options{quiet};
+print STDERR "y: (@$ymin)--(@$ymax) = $cy\n" unless $options{quiet};
+
+sub find_bbox
+{
+    my ($x1, $y1, $x2, $y2) = gs_bbox(@_);
+    my $n = scalar(@$x1) or return;
+    my $relevant = relevant($n);
+    my ($xmin, $xmax, $cx) = detect($x1, $x2,
+        $relevant, $options{xmodulus}, $options{ymodulus}) or return;
+    my ($ymin, $ymax, $cy) = detect($y1, $y2,
+        $relevant, $options{ymodulus}, $options{xmodulus}) or return;
+    return ($xmin, $xmax, $cx, $ymin, $ymax, $cy);
+}
+
+# Invoke Ghostscript and read its output
+sub gs_bbox
+{
+    my ($input, $input_type) = @_;      # Read input from file or pipe
+    my @x1; my @y1; my @x2; my @y2;     # Bounding boxes by page, in points
+
+    # Compose command to invoke ghostscript with the bbox device driver
+    my $cmd = "$options{ghostscript} -dNOPLATFONTS -dNOPAUSE " .
+        "-dQUIET -dSAFER -sDEVICE=bbox -dBATCH -sOutputFile=/dev/null";
+    if    ($input_type eq 'file') { $cmd = "$cmd \Q$input\E 2>&1" }
+    elsif ($input_type eq 'pipe') { $cmd = "$input | $cmd - 2>&1" }
+    else                          { die                           }
+    print STDERR "$cmd\n" unless $options{quiet};
+
+    # Be ready to cut off Ghostscript if we don't need further information
+    my $max_sample = 0;
+    {
+        my @sample = map @$_, @$sample;
+        if (not grep $_ < 0, @sample)
+        {
+            $max_sample >= $_ or $max_sample = $_ foreach @sample;
+        }
+    }
+
+    # Invoke Ghostscript and read bounding box information from it
+    open GS, "$cmd|" or die "Could not invoke Ghostscript: $!.\n";
+    while (defined($_ = <GS>) and not ($max_sample > 0 and @x1 >= $max_sample))
+    {
+        if (my ($x1, $y1, $x2, $y2) =
+            /^%%\s*BoundingBox\s*:\s*(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s*$/is)
+        {
+            push @x1, $x1;
+            push @y1, $y1;
+            push @x2, $x2;
+            push @y2, $y2;
+            printf STDERR "%4d: %s", scalar(@x1), $_
+                unless $options{quiet};
+        }
+    }
+    close GS;
+
+    # Done
+    return (\@x1, \@y1, \@x2, \@y2);
+}
+
+# Decide which pages' bounding boxes we actually want to consider
+sub relevant ($)
+{
+    my ($n) = @_;
+    my @relevant;
+
+    foreach my $s (@$sample)
+    {
+        my ($beg, $end) = @$s;
+        $relevant[$_] = 1
+            foreach ($beg > 0 ? $beg - 1 : $beg + $n)
+                 .. ($end > 0 ? $end - 1 : $end + $n);
+    }
+    return \@relevant;
+}
+
+# Detect input page size
+sub detect ($$$$$)
+{
+    my ($list1, $list2, $relevant, $modulus, $other_modulus) = @_;
+
+    my @min = (undef) x $modulus;
+    my @max = (undef) x $modulus;
+    for (my $i = 0; $i < @$relevant; ++$i)
+    {
+        if ($relevant->[$i] and $list1->[$i] < $list2->[$i])
+        {
+            my $offset = $i % $modulus;
+            defined $min[$offset] and $min[$offset] <= $list1->[$i]
+                                   or $min[$offset]  = $list1->[$i];
+            defined $max[$offset] and $max[$offset] >= $list2->[$i]
+                                   or $max[$offset]  = $list2->[$i];
+        }
+    }
+    return () if grep !defined, @min or grep !defined, @max;
+
+    my $sizes = zip(sub { $_[1] - $_[0] }, \@min, \@max);
+    my $size = undef;
+    defined $size and $size >= $_ or $size = $_ foreach @$sizes;
+
+    @min = (@min) x $other_modulus;
+    @max = (@max) x $other_modulus;
+
+    return (\@min, \@max, $size);
+}
+
+## Construct command line for performing desired action
+
+my ($ps2ps_cx, $ps2ps_cy);      # Output bounding box from pstops
+my ($final_cx, $final_cy);      # Final %%BoundingBox and %%PageBoundingBox
+
+if ($options{nup})
+{
+    ($ps2ps_cx, $ps2ps_cy) = ($cx, $cy);
+    if ($options{magic})
+    {
+        my ($magic_x, $magic_y) = ($paper_cx, $paper_cy);
+        ($magic_x, $magic_y) = ($magic_y, $magic_x) if $magic_x > $magic_y;
+        $magic_y /= $options{n};
+        ($magic_x, $magic_y) = ($magic_y, $magic_x) if $magic_x > $magic_y;
+        if ($cx <= $magic_x and $cy <= $magic_y)
+        {
+            $options{margin} = $options{border} = 0;
+            ($ps2ps_cx, $ps2ps_cy) = ($magic_x, $magic_y);
+            $options{quiet} or print STDERR
+                "Magic effective in portrait mode -- look ma, no shrinking!\n";
+        }
+        elsif ($cy <= $magic_x and $cx <= $magic_y)
+        {
+            $options{margin} = $options{border} = 0;
+            ($ps2ps_cx, $ps2ps_cy) = ($magic_y, $magic_x);
+            $options{quiet} or print STDERR
+                "Magic effective in landscape mode -- look ma, no shrinking!\n";
+        }
+        else
+        {
+            $options{quiet} or print STDERR "Magic not effective; oh well.\n";
+        }
+    }
+    ($final_cx, $final_cy) = ($paper_cx, $paper_cy);
+}
+elsif ($options{center})
+{
+    ($ps2ps_cx, $ps2ps_cy) = ($paper_cx, $paper_cy);
+    ($final_cx, $final_cy) = ($paper_cx, $paper_cy);
+}
+else # $options{trim}
+{
+    ($ps2ps_cx, $ps2ps_cy) = ($cx, $cy);
+    ($final_cx, $final_cy) = ($cx, $cy);
+}
+
+my $quiet = $options{"quiet"} ? " -q" : "";
+
+my $cmd = "$options{pstops}$quiet";
+$cmd .= " '" . scalar(@$xmin) . ":" . join(",",
+    map sprintf("%d(%g,%g)", $_,
+            ($ps2ps_cx - $cx) / 2 - $xmin->[$_],
+            ($ps2ps_cy - $cy) / 2 - $ymin->[$_]), 0..$#$xmin);
+$cmd .= "' \Q$ARGV[0]\E";
+
+if ($options{scoot})
+{
+    $cmd .= " | $options{psselect}$quiet -p_,-";
+}
+
+if ($options{nup})
+{
+    $cmd .= " | $options{psnup}$quiet";
+    $cmd .= " -w$paper_cx -h$paper_cy -W$ps2ps_cx -H$ps2ps_cy";
+    $cmd .= " -m\Q$options{margin}\E -b\Q$options{border}\E -\Q$options{n}\E";
+}
+
+if ($options{tumble})
+{
+    $cmd .= " | $options{pstops}$quiet '2:0,1U($paper_cx,$paper_cy)'";
+}
+
+## Do it; filter output to fix DSC comments
+
+my $out;
+if ($ARGV[1] eq "-")
+{
+    $out = \*STDOUT;
+}
+elsif (defined $options{printer})
+{
+    require IO::Pipe;
+    $out = IO::Pipe->new;
+    $out->writer("$options{lpr} -P\Q$options{printer}\E");
+}
+else
+{
+    require IO::File;
+    $out = IO::File->new($ARGV[1], ">")
+        or die qq|Could not open "$ARGV[1]" for writing: $!.\n|;
+}
+print STDERR "$cmd\n"
+    unless $options{quiet};
+open PS, "$cmd|" or die "Could not invoke psutils: $!.\n";
+while (<PS>)
+{
+    if (/^\s*%%\s*(BoundingBox|PageBoundingBox)\s*:/is)
+    {
+        print $out "%%$1: 0 0 $final_cx $final_cy\n";
+    }
+    elsif (/^\s*%%\s*(DocumentPaperSizes|PaperSize)\s*:/is)
+    {
+        # Do nothing
+    }
+    else
+    {
+        print $out $_;
+    }
+}
+close PS;
+close $out;
+
+# The bane of functional programming
+
+sub zip
+{
+    my $code = shift;
+
+    my @ret;
+    for (my $i = 0; grep $i < @$_, @_; ++$i)
+    {
+        push @ret, $code->(map $_->[$i], @_);
+    }
+    return \@ret;
+}
+
