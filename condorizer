@@ -23,7 +23,7 @@ Executable = %s
 +ProjectDescription = "nlp tests"
 
 Arguments = %s
-Queue 
+Queue
 """
 
 OutputLine = """
@@ -49,6 +49,6 @@ else:
 condor_file = '/tmp/%s.condor' % (SafeOutputFile)
 f = open(condor_file, 'w')
 f.write(CondorScript % (CurrentDir, Executable, outputlines, Arguments))
-f.close()   
+f.close()
 
 os.popen('/lusr/opt/condor/bin/condor_submit %s' % condor_file)
