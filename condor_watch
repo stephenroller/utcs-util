@@ -1,0 +1,2 @@
+#!/bin/sh
+watch -n 5  "condor_q $USER | tail; echo; /u/amy/chkquota-filer4a"

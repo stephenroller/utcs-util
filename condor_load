@@ -1,0 +1,5 @@
+#!/bin/sh
+
+echo "Hostname: `hostname`"
+condor_q | awk '{print $2}' | grep -v OWNER | grep -v Submitter | grep -v 'jobs;' | grep -v ^$ | sort | uniq -c | sort -rn
+
