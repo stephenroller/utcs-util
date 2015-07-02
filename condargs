@@ -6,6 +6,7 @@ import argparse
 import getpass
 from datetime import datetime
 from math import floor, log10, ceil
+from random import shuffle
 
 CONDOR_TEMPLATE = """
 # Automatically created with condargs
@@ -66,18 +67,21 @@ def make_itemformatter(name, length, splits):
     return _format
 
 def main():
-    parser = argparse.ArgumentParser('Runs a command on Condor, with arguments read from stdin')
+    parser = argparse.ArgumentParser('Runs a command on Condor, with arguments read from stdin.')
     parser.add_argument('jobname', help='Name of the job.')
-    parser.add_argument('group', type=int, help='Number of inputs to group into one ')
-    parser.add_argument('suffix', help='Suffix to add to stdout filenames')
+    parser.add_argument('group', type=int, help='Number of inputs to group into one job.')
     parser.add_argument('outputdir', help='Directory to place output files. Will be converted to an absolute path.')
-    parser.add_argument('command', help='Command to run')
+    parser.add_argument('--ca-suffix', default='', help='Suffix to add to stdout filenames.')
+    parser.add_argument('--ca-shuffle', action='store_true', help='Shuffle the order of the filenames.')
+    parser.add_argument('command', help='Command to run.')
     parser.add_argument('args', nargs=argparse.REMAINDER)
     args = parser.parse_args()
 
     outdir = make_absolute(args.outputdir)
     runargs = " ".join(args.args)
     files = [l.strip() for l in list(sys.stdin)]
+    if args.ca_shuffle:
+        shuffle(files)
     itemformatter = make_itemformatter(args.jobname, len(files), args.group)
 
     template_vars = dict(
@@ -101,7 +105,7 @@ def main():
             args=runargs,
             filenames = " ".join(nextgroup),
             itemid=itemformatter(i),
-            suffix=args.suffix,
+            suffix=args.ca_suffix,
         )
         setups.append(COMMAND_TEMPLATE % local_vars)
 
