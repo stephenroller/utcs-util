@@ -60,7 +60,10 @@ def make_absolute(pathname):
     return os.path.abspath(pathname)
 
 def make_itemformatter(name, length, splits):
-    numdigits = int(floor(log10(ceil(length/float(splits))))) + 1
+    try:
+        numdigits = int(floor(log10(ceil(length/float(splits))))) + 1
+    except ValueError:
+        numdigits = 2
     _fmt = name + "_%0" + str(numdigits) + "d"
     def _format(val):
         return _fmt % val
