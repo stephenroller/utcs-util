@@ -4,15 +4,19 @@ import os
 import os.path
 import argparse
 import getpass
+import subprocess
 from datetime import datetime
 from math import floor, log10, ceil
 from random import shuffle
+
 
 CONDOR_TEMPLATE = """
 # Automatically created with condargs
 # Created by %(user)s on %(timestamp)s
 # With command:
 #    %(runcommand)s
+# With standard input:
+%(stdin)s
 # Run in directory:
 #    %(pwd)s
 # Total number of files: %(numfiles)d
@@ -25,7 +29,7 @@ getenv = true
 
 Initialdir = %(pwd)s
 Executable = %(exc)s
-Log = condorlog.%(jobname)s
+Log = %(logfile)s
 
 +Group   = "GRAD"
 +Project = "AI_ROBOTICS"
@@ -45,8 +49,15 @@ Arguments = %(args)s %(filenames)s
 Queue
 """
 
+def run_command(*command_lst):
+    return subprocess.check_output(command_lst, stderr=subprocess.STDOUT)
+
+def comment(string):
+    lines = string.split("\n")
+    return "\n".join("# " + l for l in lines)
+
 def timestamp():
-    return str(datetime.utcnow())
+    return datetime.now().strftime("%Y%m%d%H%M%S")
 
 def rununix(cmd):
     with os.popen(cmd) as p:
@@ -59,40 +70,76 @@ def which(executable):
 def make_absolute(pathname):
     return os.path.abspath(pathname)
 
-def make_itemformatter(name, length, splits):
+def make_itemformatter(length, splits, zeropad):
+    if not zeropad:
+        return str
     try:
         numdigits = int(floor(log10(ceil(length/float(splits))))) + 1
     except ValueError:
         numdigits = 2
-    _fmt = name + "_%0" + str(numdigits) + "d"
+    _fmt = "%0" + str(numdigits) + "d"
     def _format(val):
         return _fmt % val
     return _format
 
 def main():
-    parser = argparse.ArgumentParser('Runs a command on Condor, with arguments read from stdin.')
-    parser.add_argument('jobname', help='Name of the job.')
-    parser.add_argument('group', type=int, help='Number of inputs to group into one job.')
-    parser.add_argument('outputdir', help='Directory to place output files. Will be converted to an absolute path.')
-    parser.add_argument('--ca-suffix', default='', help='Suffix to add to stdout filenames.')
-    parser.add_argument('--ca-shuffle', action='store_true', help='Shuffle the order of the filenames.')
+    parser = argparse.ArgumentParser(description='Runs a command on Condor, with arguments read from stdin.')
+    parser.add_argument('--no-zero-pad', action='store_true', help='Normally output files are padded with an appropriate width of zeros. Disable this.')
+    parser.add_argument('--jobname', '-n', help='Name of the job. If empty, uses [timestamp]-[command].')
+    parser.add_argument('--output', '-o', help='Directory to place output files. Defaults to [jobname]')
+    parser.add_argument('--group', type=int, default=1, help='Number of inputs to group into one job.')
+    parser.add_argument('--suffix', default='', help='Suffix to add to stdout filenames.')
+    parser.add_argument('--shuffle', action='store_true', help='Shuffle the order of the filenames.')
+    parser.add_argument('--logfile', '-l', help='Destination for condor log file. If empty, uses [output]/condor.log')
+    parser.add_argument('--submitfile', help='The file for input to condor_submit. Defaults to [output]/condor.submit')
+    parser.add_argument('--submit', action='store_true', help='Submit the condor job.')
+    parser.add_argument('--wait', action='store_true', help='Block until the condor job finishes. Forces --submit.')
     parser.add_argument('command', help='Command to run.')
-    parser.add_argument('args', nargs=argparse.REMAINDER)
+    parser.add_argument('args', nargs=argparse.REMAINDER, help="Command line arguments. Use -- to deliminate to distributed arguments.")
     args = parser.parse_args()
 
-    outdir = make_absolute(args.outputdir)
-    runargs = " ".join(args.args)
-    files = [l.strip() for l in list(sys.stdin)]
-    if args.ca_shuffle:
+    if args.wait:
+        args.submit = True
+
+    if not args.jobname:
+        args.jobname = timestamp() + "_"  + os.path.basename(args.command)
+
+    if not args.output:
+        args.output = os.path.join(os.getcwd(), args.jobname)
+
+    if not args.logfile:
+        args.logfile = os.path.join(args.output, "condor.log")
+
+    if args.submit and not args.submitfile:
+        args.submitfile = os.path.join(args.output, "condor.submit")
+
+    if '--' in args.args:
+        idx = args.args.index('--')
+        arguments, files = args.args[:idx], args.args[idx+1:]
+    else:
+        arguments, files = args.args, []
+
+    stdin = sys.stdin.read().strip()
+    files += [l.strip() for l in stdin.split("\n")]
+
+    outdir = make_absolute(args.output)
+    if not os.path.exists(outdir):
+        os.mkdir(outdir)
+
+    runargs = " ".join(arguments)
+
+    if args.shuffle:
         shuffle(files)
-    itemformatter = make_itemformatter(args.jobname, len(files), args.group)
+    itemformatter = make_itemformatter(len(files), args.group, not args.no_zero_pad)
 
     template_vars = dict(
         user=getpass.getuser(),
         pwd=os.getcwd(),
         jobname=args.jobname,
         timestamp=timestamp(),
+        logfile=args.logfile,
         runcommand=" ".join(sys.argv),
+        stdin=comment(stdin),
         exc=which(args.command),
         outdir=outdir,
         numfiles=len(files),
@@ -108,7 +155,7 @@ def main():
             args=runargs,
             filenames = " ".join(nextgroup),
             itemid=itemformatter(i),
-            suffix=args.ca_suffix,
+            suffix=args.suffix,
         )
         setups.append(COMMAND_TEMPLATE % local_vars)
 
@@ -116,8 +163,21 @@ def main():
 
     template_vars['numjobs'] = i
     template_vars['jobcommands'] = "\n".join(setups)
-    with open('submit.' + args.jobname, "w") as submitfile:
-        submitfile.write(CONDOR_TEMPLATE % template_vars)
+
+    # output the generated submit file, and possibly submit it to condor
+    submitoutput = CONDOR_TEMPLATE % template_vars
+    if args.submitfile:
+        with open(args.submitfile, "w") as submitfile:
+            submitfile.write(submitoutput)
+        if args.submit:
+            run_command("/lusr/opt/condor/bin/condor_submit", args.submitfile)
+    else:
+        sys.stdout.write(submitoutput)
+
+    # And possibly wait utnil completing
+    if args.wait:
+        run_command("/lusr/opt/condor/bin/condor_wait", args.logfile)
+
 
 if __name__ == '__main__':
     main()

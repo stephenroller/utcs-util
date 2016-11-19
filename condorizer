@@ -65,9 +65,9 @@ def main():
     pwd = make_absolute(os.getcwd())
 
     if args.gpu:
-        requirements = "requirements = TARGET.GPUSlot && CUDAGlobalMemoryMb >= 6144\nrequest_GPUs = 1\n+GPUJob = true"
+        requirements = "requirements = Cuda8 && TARGET.GPUSlot && CUDAGlobalMemoryMb >= 6144\nrequest_GPUs = 1\n+GPUJob = true && NumJobStarts == 0"
     elif args.highmem:
-        requirements = "requirements = InMastodon && Memory >= 12899"
+        requirements = "requirements = InMastodon && Memory >= 64 * 1024"
     else:
         requirements = "requirements = InMastodon"
 
@@ -81,7 +81,6 @@ def main():
                 break
     else:
         jobname = args.command
-
 
     default_outputname = timestamp.strftime("%Y%m%d%H%M%S.%f") + "-"  + jobname
     if args.output:
